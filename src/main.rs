@@ -707,7 +707,20 @@ async fn main() -> Result<()> {
             let mut result = String::new();
             let mut pos = tokens.len() as i32;
             
-            for _ in 0..20 {
+            // Use max_tokens and stop_on_newline from preset if available
+            let max_tokens = if let Some(ref preset) = selected_preset {
+                preset.max_tokens
+            } else {
+                100
+            };
+            
+            let stop_on_newline = if let Some(ref preset) = selected_preset {
+                preset.stop_on_newline
+            } else {
+                false
+            };
+            
+            for _ in 0..max_tokens {
                 let candidates = ctx.candidates_ith(batch.n_tokens() - 1);
                 
                 let token = candidates
@@ -722,8 +735,20 @@ async fn main() -> Result<()> {
                 let piece = model.token_to_str(token, llama_cpp_2::model::Special::Tokenize)?;
                 result.push_str(&piece);
 
-                if result.contains('\n') {
+                // Stop on newline if configured
+                if stop_on_newline && result.contains('\n') {
                     break;
+                }
+                
+                // Stop after complete JSON object (for JSON presets)
+                let trimmed = result.trim();
+                if trimmed.starts_with('{') && trimmed.ends_with('}') {
+                    // Check if it's a complete JSON by counting braces
+                    let open_braces = trimmed.chars().filter(|&c| c == '{').count();
+                    let close_braces = trimmed.chars().filter(|&c| c == '}').count();
+                    if open_braces == close_braces && open_braces > 0 {
+                        break;
+                    }
                 }
 
                 batch.clear();
@@ -732,8 +757,8 @@ async fn main() -> Result<()> {
                 ctx.decode(&mut batch)?;
             }
 
-            // Trim whitespace and convert to uppercase
-            println!("→ {}\n", result.trim().to_uppercase());
+            // Trim whitespace
+            println!("→ {}\n", result.trim());
         }
         
         // Inner loop finished, continue outer loop for new model selection
